@@ -210,72 +210,40 @@ module Vault
       document = JSON.parse(document_api_response)
 
       role_base_uri = URI.join(aws_meta_data_host, '/latest/meta-data/iam/security-credentials/')
-      role_uri = URI(role_base_uri)
-      aws_role_name = Net::HTTP.get(role_uri)
+      aws_role_name = Net::HTTP.get(role_base_uri)
 
       credentials_uri = URI.join(aws_meta_data_host, role_base_uri, aws_role_name)
       credentials_api_response = Net::HTTP.get(credentials_uri)
       credentials = JSON.parse(credentials_api_response)
 
-      # request_body = 'Action=GetCallerIdentity&Version=2011-06-15'
-      # request_url = 'https://sts.amazonaws.com/'
-      # request_method = 'POST'
-      # iam_auth_header_value ||= IAM_SERVER_ID_HEADER
-      # vault_headers = {
-      #   # do i need to include the  'Content-Length' 'User-Agent'  'Content-Type'?
-      #   'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
-      #   'X-Vault-AWSIAM-Server-Id' => iam_auth_header_value
-      # }
-
-      # sig4_headers = Aws::Sigv4::Signer.new(
-      #   service: 'iam',
-      #   region: document['region'],
-      #   # static credentials
-      #   access_key_id: credentials['AccessKeyId'],
-      #   secret_access_key: credentials['SecretAccessKey']
-      # ).sign_request(
-      #   http_method: request_method,
-      #   url: request_url,
-      #   headers: vault_headers,
-      #   body: request_body
-      # ).headers
-
-      time = Time.now.utc
-      date_stamp = time.strftime('%Y%m%d')
-
-      date_sha    = OpenSSL::HMAC.digest('sha256', 'AWS4' + credentials['SecretAccessKey'], date_stamp)
-      region_sha  = OpenSSL::HMAC.digest('sha256', date_sha, document['region'])
-      service_sha = OpenSSL::HMAC.digest('sha256', region_sha, 'iam')
-      signing_sha = OpenSSL::HMAC.digest('sha256', service_sha, 'aws4_request')
-
+      request_body = 'Action=GetCallerIdentity&Version=2011-06-15'
+      request_url = 'https://sts.amazonaws.com/'
+      request_method = 'POST'
       iam_auth_header_value ||= IAM_SERVER_ID_HEADER
 
-      request_body = Base64.strict_encode64('Action=GetCallerIdentity&Version=2011-06-15')
-      request_uri = URI('https://sts.amazonaws.com/')
-
-      canonical_headers = {
-        'Content-Length' => request_body.length.to_s,
+      vault_headers = {
         'User-Agent' => Vault::Client::USER_AGENT,
-        'X-Vault-AWSIAM-Server-Id' => iam_auth_header_value,
-        'X-Amz-Date' => time.strftime('%Y%m%dT%H%M%SZ'),
         'Content-Type' => 'application/x-www-form-urlencoded; charset=utf-8',
-        'Host' => request_uri.host,
+        'X-Vault-AWSIAM-Server-Id' => iam_auth_header_value
       }
 
-      authorization_header = {
-        'Authorization' => [
-          "AWS4-HMAC-SHA256 Credential=#{[credentials['AccessKeyId'], date_stamp, region_name, 'iam', 'aws4_request'].join('/')}, "\
-          "SignedHeaders=#{canonical_headers.keys.map(&:downcase).sort.join(';')}, Signature=#{signing_sha}"
-        ]
-      }
-
-      headers_hash = canonical_headers.merge(authorization_header)
+      sig4_headers = Aws::Sigv4::Signer.new(
+        service: 'iam',
+        region: document['region'],
+        access_key_id: credentials['AccessKeyId'],
+        secret_access_key: credentials['SecretAccessKey']
+      ).sign_request(
+        http_method: request_method,
+        url: request_url,
+        headers: vault_headers,
+        body: request_body
+      ).headers
 
       payload = {
         role: role,
         iam_http_request_method: request_method,
-        iam_request_url: Base64.strict_encode64(request_url.to_s),
-        iam_request_headers: Base64.strict_encode64(headers_hash.to_json),
+        iam_request_url: Base64.strict_encode64(request_url),
+        iam_request_headers: Base64.strict_encode64(vault_headers.merge(sig4_headers).to_json),
         iam_request_body: Base64.strict_encode64(request_body)
       }
 
