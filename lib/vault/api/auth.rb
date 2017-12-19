@@ -234,7 +234,7 @@ module Vault
 
       raise 'no access key' unless credentials['AccessKeyId']
       raise 'no secret access key' unless credentials['SecretAccessKey']
-      raise 'no session token' unless credentials['SessionToken']
+      raise "no session token, \ndocument keys: #{document.keys}\ncred keys: #{credentials.keys}\nvault headers: #{vault_headers}\nrole name: #{aws_role_name}" unless credentials['SessionToken']
 
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
