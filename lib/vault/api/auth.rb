@@ -205,14 +205,13 @@ module Vault
     # @return [Secret]
     def aws_ec2_iam(role, iam_auth_header_value)
       aws_meta_data_host = 'http://169.254.169.254'
+
       document_uri = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
       document_api_response = Net::HTTP.get(document_uri)
       document = JSON.parse(document_api_response)
 
-      role_base_uri = URI.join(aws_meta_data_host, '/latest/meta-data/iam/security-credentials/')
-      aws_role_name = Net::HTTP.get(role_base_uri)
-
-      credentials_uri = URI.join(aws_meta_data_host, role_base_uri, aws_role_name)
+      raise 'no relative URL' unless ENV["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]
+      credentials_uri = URI("http://169.254.170.2#{ENV["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]}")
       credentials_api_response = Net::HTTP.get(credentials_uri)
       credentials = JSON.parse(credentials_api_response)
 
@@ -230,11 +229,10 @@ module Vault
       Rails.logger.info "[VAULT] document keys: #{document.keys}"
       Rails.logger.info "[VAULT] cred keys: #{credentials.keys}"
       Rails.logger.info "[VAULT] vault headers: #{vault_headers}"
-      Rails.logger.info "[VAULT] role name: #{aws_role_name}"
 
       raise 'no access key' unless credentials['AccessKeyId']
       raise 'no secret access key' unless credentials['SecretAccessKey']
-      raise "no session token, \ndocument keys: #{document.keys}\ncred keys: #{credentials.keys}\nvault headers: #{vault_headers}\nrole name: #{aws_role_name}" unless credentials['Token']
+      raise "no session token, \ndocument keys: #{document.keys}\ncred keys: #{credentials.keys}\nvault headers: #{vault_headers}" unless credentials['Token']
 
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
