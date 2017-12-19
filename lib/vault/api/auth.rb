@@ -229,12 +229,15 @@ module Vault
 
       raise 'no access key' unless credentials['AccessKeyId']
       raise 'no secret access key' unless credentials['SecretAccessKey']
+      raise 'no session token' unless credentials['SessionToken']
+
 
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
         region: document['region'],
         access_key_id: credentials['AccessKeyId'],
-        secret_access_key: credentials['SecretAccessKey']
+        secret_access_key: credentials['SecretAccessKey'],
+        session_token: credentials['SessionToken']
       ).sign_request(
         http_method: request_method,
         url: request_url,
