@@ -228,7 +228,7 @@ module Vault
       }
 
       sig4_headers = Aws::Sigv4::Signer.new(
-        service: 'iam',
+        service: 'sts',
         region: document['region'],
         access_key_id: credentials['AccessKeyId'],
         secret_access_key: credentials['SecretAccessKey']
