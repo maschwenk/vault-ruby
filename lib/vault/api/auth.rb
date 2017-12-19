@@ -227,10 +227,14 @@ module Vault
         'X-Vault-AWSIAM-Server-Id' => iam_auth_header_value
       }
 
+      Rails.logger.info "[VAULT] document keys: #{document.keys}"
+      Rails.logger.info "[VAULT] cred keys: #{credentials.keys}"
+      Rails.logger.info "[VAULT] vault headers: #{vault_headers}"
+      Rails.logger.info "[VAULT] role name: #{aws_role_name}"
+
       raise 'no access key' unless credentials['AccessKeyId']
       raise 'no secret access key' unless credentials['SecretAccessKey']
       raise 'no session token' unless credentials['SessionToken']
-
 
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
