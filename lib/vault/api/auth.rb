@@ -227,6 +227,9 @@ module Vault
         'X-Vault-AWSIAM-Server-Id' => iam_auth_header_value
       }
 
+      raise 'no access key' unless credentials['AccessKeyId']
+      raise 'no secret access key' unless credentials['SecretAccessKey']
+
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
         region: document['region'],
