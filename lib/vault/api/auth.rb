@@ -206,7 +206,8 @@ module Vault
     def aws_ec2_iam(role, iam_auth_header_value = IAM_SERVER_ID_HEADER)
       aws_meta_data_host = 'http://169.254.169.254'
 
-      document_uri = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
+      # document_uri = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
+      document_uri = URI('http://localhost:51678/v1/metadata')
       document_api_response = Net::HTTP.get(document_uri)
       document = JSON.parse(document_api_response)
 
@@ -233,10 +234,12 @@ module Vault
       Rails.logger.info "[VAULT] document keys: #{document.keys}"
       Rails.logger.info "[VAULT] cred keys: #{credentials.keys}"
       Rails.logger.info "[VAULT] vault headers: #{vault_headers}"
+      Rails.logger.info "[VAULT] container instance arn: #{document['ContainerInstanceArn']}"
+      Rails.logger.info "[VAULT] region: #{document['ContainerInstanceArn'].split(':')[3]}"
 
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
-        region: document['region'],
+        region: document['ContainerInstanceArn'].split(':')[3],
         access_key_id: credentials['AccessKeyId'],
         secret_access_key: credentials['SecretAccessKey'],
         session_token: credentials['Token']
