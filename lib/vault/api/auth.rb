@@ -190,8 +190,9 @@ module Vault
       return secret
     end
 
-    # Authenticate via the AWS EC2 authentication method (IAM method). If authentication is
-    # successful, the resulting token will be stored on the client and used
+    # Authenticate via the AWS EC2 authentication method (IAM method). Credentials & region are retrieved via
+    # the AWS Instnace Metadata API. 
+    # If authentication is successful, the resulting token will be stored on the client and used
     # for future requests.
     #
     # @example
@@ -202,34 +203,91 @@ module Vault
     #
     # @return [Secret]
     def aws_ec2_iam(role, iam_auth_header_value = IAM_SERVER_ID_HEADER)
+      aws_meta_data_host = 'http://169.254.169.254'
+
+      document_uri  = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
+      document_json = Net::HTTP.get(document_uri)
+      document      = JSON.parse(document_json)
+      region        = document['region']
+
+      role_base_uri = URI.join(aws_meta_data_host, '/latest/meta-data/iam/security-credentials/')
+      aws_role_name = Net::HTTP.get(role_base_uri)
+
+      credentials_uri = URI.join(aws_meta_data_host, role_base_uri, aws_role_name)
+
+      return aws_iam(role, region, credentials_uri, iam_auth_header_value)
+    end
+
+    # Authenticate via the AWS ECS authentication method (IAM method). Credentials & region are retrieved via
+    # the ECS_CONTAINER_METADATA_FILE and AWS_CONTAINER_CREDENTIALS API.
+    # If authentication is successful, the resulting token will be stored on the client and used
+    # for future requests.
+    #
+    # @example
+    #   Vault.auth.aws_ecs_iam("dev-role-iam", "vault.example.com") #=> #<Vault::Secret lease_id="">
+    #
+    # @param [String] role
+    # @param [String] iam_auth_header_value optional
+    #
+    # @return [Secret]
+    def aws_ecs_iam(role, iam_auth_header_value = IAM_SERVER_ID_HEADER)
+      unless ENV['ECS_CONTAINER_METADATA_FILE']
+        raise 'missing env ECS_CONTAINER_METADATA_FILE. You may need to enable it by setting ECS_ENABLE_CONTAINER_METADATA' 
+      end
+      unless ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']
+        raise "missing env AWS_CONTAINER_CREDENTIALS_RELATIVE_URI. Are you sure you're running this withing an ECS task?" 
+      end
+
+      document_json = File.read(ENV['ECS_CONTAINER_METADATA_FILE'])
+      document      = JSON.parse(document_json)
+      region        = document['ContainerInstanceARN'].split(':')[3]
+
+      credentials_uri = URI("http://169.254.170.2#{ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']}")
+
+      return aws_iam(role, region, credentials_uri, iam_auth_header_value)
+    end
+
+    # Authenticate via a TLS authentication method. If authentication is
+    # successful, the resulting token will be stored on the client and used
+    # for future requests.
+    #
+    # @example Sending raw pem contents
+    #   Vault.auth.tls(pem_contents) #=> #<Vault::Secret lease_id="">
+    #
+    # @example Reading a pem from disk
+    #   Vault.auth.tls(File.read("/path/to/my/certificate.pem")) #=> #<Vault::Secret lease_id="">
+    #
+    # @example Sending to a cert authentication backend mounted at a custom location
+    #   Vault.auth.tls(pem_contents, 'custom/location') #=> #<Vault::Secret lease_id="">
+    #
+    # @param [String] pem (default: the configured SSL pem file or contents)
+    #   The raw pem contents to use for the login procedure.
+    #
+    # @param [String] path (default: 'cert')
+    #   The path to the auth backend to use for the login procedure.
+    #
+    # @return [Secret]
+    def tls(pem = nil, path = 'cert')
+      new_client = client.dup
+      new_client.ssl_pem_contents = pem if !pem.nil?
+
+      json = new_client.post("/v1/auth/#{CGI.escape(path)}/login")
+      secret = Secret.decode(json)
+      client.token = secret.auth.client_token
+      return secret
+    end
+
+    private
+
+    def aws_iam(role, region, credentials_uri, iam_auth_header_value)
       require "aws-sigv4"
       require "base64"
 
-      aws_meta_data_host = 'http://169.254.169.254'
-
-      if ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']
-        document_json = File.read(ENV['ECS_CONTAINER_METADATA_FILE'])
-        document = JSON.parse(document_json)
-        region = document['ContainerInstanceARN'].split(':')[3]
-      else
-        document_uri = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
-        document_json = Net::HTTP.get(document_uri)
-        document = JSON.parse(document_json)
-        region = document['region']
-      end
-
-      credentials_uri = if ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']
-                          URI("http://169.254.170.2#{ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']}")
-                        else
-                          role_base_uri = URI.join(aws_meta_data_host, '/latest/meta-data/iam/security-credentials/')
-                          aws_role_name = Net::HTTP.get(role_base_uri)
-                          URI.join(aws_meta_data_host, role_base_uri, aws_role_name)
-                        end
       credentials_api_response = Net::HTTP.get(credentials_uri)
       credentials = JSON.parse(credentials_api_response)
 
-      request_body = 'Action=GetCallerIdentity&Version=2011-06-15'
-      request_url = 'https://sts.amazonaws.com/'
+      request_body   = 'Action=GetCallerIdentity&Version=2011-06-15'
+      request_url    = 'https://sts.amazonaws.com/'
       request_method = 'POST'
 
       vault_headers = {
@@ -260,36 +318,6 @@ module Vault
       }
 
       json = client.post('/v1/auth/aws/login', JSON.fast_generate(payload))
-      secret = Secret.decode(json)
-      client.token = secret.auth.client_token
-      return secret
-    end
-
-    # Authenticate via a TLS authentication method. If authentication is
-    # successful, the resulting token will be stored on the client and used
-    # for future requests.
-    #
-    # @example Sending raw pem contents
-    #   Vault.auth.tls(pem_contents) #=> #<Vault::Secret lease_id="">
-    #
-    # @example Reading a pem from disk
-    #   Vault.auth.tls(File.read("/path/to/my/certificate.pem")) #=> #<Vault::Secret lease_id="">
-    #
-    # @example Sending to a cert authentication backend mounted at a custom location
-    #   Vault.auth.tls(pem_contents, 'custom/location') #=> #<Vault::Secret lease_id="">
-    #
-    # @param [String] pem (default: the configured SSL pem file or contents)
-    #   The raw pem contents to use for the login procedure.
-    #
-    # @param [String] path (default: 'cert')
-    #   The path to the auth backend to use for the login procedure.
-    #
-    # @return [Secret]
-    def tls(pem = nil, path = 'cert')
-      new_client = client.dup
-      new_client.ssl_pem_contents = pem if !pem.nil?
-
-      json = new_client.post("/v1/auth/#{CGI.escape(path)}/login")
       secret = Secret.decode(json)
       client.token = secret.auth.client_token
       return secret
