@@ -234,10 +234,6 @@ module Vault
       Rails.logger.info "[VAULT] cred keys: #{credentials.keys}"
       Rails.logger.info "[VAULT] vault headers: #{vault_headers}"
 
-      raise 'no access key' unless credentials['AccessKeyId']
-      raise 'no secret access key' unless credentials['SecretAccessKey']
-      raise "no session token, \ndocument keys: #{document.keys}\ncred keys: #{credentials.keys}\nvault headers: #{vault_headers}" unless credentials['Token']
-
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
         region: document['region'],
