@@ -238,12 +238,12 @@ module Vault
       Rails.logger.info "[VAULT] document keys: #{document.keys}"
       Rails.logger.info "[VAULT] cred keys: #{credentials.keys}"
       Rails.logger.info "[VAULT] vault headers: #{vault_headers}"
-      Rails.logger.info "[VAULT] container instance arn: #{document['ContainerInstanceArn']}"
-      Rails.logger.info "[VAULT] region: #{document['ContainerInstanceArn'].split(':')[3]}"
+      Rails.logger.info "[VAULT] container instance arn: #{document['ContainerInstanceARN']}"
+      Rails.logger.info "[VAULT] region: #{document['ContainerInstanceARN'].split(':')[3]}"
 
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
-        region: document['ContainerInstanceArn'].split(':')[3],
+        region: document['ContainerInstanceARN'].split(':')[3],
         access_key_id: credentials['AccessKeyId'],
         secret_access_key: credentials['SecretAccessKey'],
         session_token: credentials['Token']
