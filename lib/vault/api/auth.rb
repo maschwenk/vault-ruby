@@ -1,5 +1,3 @@
-require "aws-sigv4"
-require "base64"
 require "json"
 
 require_relative "secret"
@@ -200,20 +198,25 @@ module Vault
     #   Vault.auth.aws_ec2_iam("dev-role-iam", "vault.example.com") #=> #<Vault::Secret lease_id="">
     #
     # @param [String] role
-    # @param [String] iam_auth_header_vaule
+    # @param [String] iam_auth_header_value optional
     #
     # @return [Secret]
     def aws_ec2_iam(role, iam_auth_header_value = IAM_SERVER_ID_HEADER)
+      require "aws-sigv4"
+      require "base64"
+
       aws_meta_data_host = 'http://169.254.169.254'
 
-      # document_uri = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
-      # document_uri = URI('http://localhost:51678/v1/metadata')
-      require 'json'
-      raise 'no container metadata file' unless ENV['ECS_CONTAINER_METADATA_FILE']
-      file = File.read(ENV['ECS_CONTAINER_METADATA_FILE'])
-      document = JSON.parse(file)
-      # document_api_response = Net::HTTP.get(document_uri)
-      # document = JSON.parse(document_api_response)
+      if ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']
+        document_json = File.read(ENV['ECS_CONTAINER_METADATA_FILE'])
+        document = JSON.parse(document_json)
+        region = document['ContainerInstanceARN'].split(':')[3]
+      else
+        document_uri = URI.join(aws_meta_data_host, '/latest/dynamic/instance-identity/document')
+        document_json = Net::HTTP.get(document_uri)
+        document = JSON.parse(document_json)
+        region = document['region']
+      end
 
       credentials_uri = if ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']
                           URI("http://169.254.170.2#{ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']}")
@@ -235,15 +238,9 @@ module Vault
         'X-Vault-AWSIAM-Server-Id' => iam_auth_header_value
       }
 
-      Rails.logger.info "[VAULT] document keys: #{document.keys}"
-      Rails.logger.info "[VAULT] cred keys: #{credentials.keys}"
-      Rails.logger.info "[VAULT] vault headers: #{vault_headers}"
-      Rails.logger.info "[VAULT] container instance arn: #{document['ContainerInstanceARN']}"
-      Rails.logger.info "[VAULT] region: #{document['ContainerInstanceARN'].split(':')[3]}"
-
       sig4_headers = Aws::Sigv4::Signer.new(
         service: 'sts',
-        region: document['ContainerInstanceARN'].split(':')[3],
+        region: region,
         access_key_id: credentials['AccessKeyId'],
         secret_access_key: credentials['SecretAccessKey'],
         session_token: credentials['Token']
