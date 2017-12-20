@@ -210,8 +210,13 @@ module Vault
       document_api_response = Net::HTTP.get(document_uri)
       document = JSON.parse(document_api_response)
 
-      raise 'no relative URL' unless ENV["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]
-      credentials_uri = URI("http://169.254.170.2#{ENV["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"]}")
+      credentials_uri = if ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']
+                          URI("http://169.254.170.2#{ENV['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']}")
+                        else
+                          role_base_uri = URI.join(aws_meta_data_host, '/latest/meta-data/iam/security-credentials/')
+                          aws_role_name = Net::HTTP.get(role_base_uri)
+                          URI.join(aws_meta_data_host, role_base_uri, aws_role_name)
+                        end
       credentials_api_response = Net::HTTP.get(credentials_uri)
       credentials = JSON.parse(credentials_api_response)
 
